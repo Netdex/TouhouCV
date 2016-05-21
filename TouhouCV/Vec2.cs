@@ -5,20 +5,6 @@ namespace TouhouCV
 {
     public struct Vec2
     {
-        public override bool Equals(object obj)
-        {
-            if (ReferenceEquals(null, obj)) return false;
-            return obj is Vec2 && Equals((Vec2) obj);
-        }
-
-        public override int GetHashCode()
-        {
-            unchecked
-            {
-                return (X.GetHashCode()*397) ^ Y.GetHashCode();
-            }
-        }
-
         public static Vec2 ZERO = new Vec2(0, 0);
 
         public double X { get; private set; }
@@ -101,6 +87,20 @@ namespace TouhouCV
         public bool Equals(Vec2 other)
         {
             return X.Equals(other.X) && Y.Equals(other.Y);
+        }
+
+        public override bool Equals(object obj)
+        {
+            if (ReferenceEquals(null, obj)) return false;
+            return obj is Vec2 && Equals((Vec2)obj);
+        }
+
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                return (X.GetHashCode() * 397) ^ Y.GetHashCode();
+            }
         }
 
         public static double Dot(Vec2 a, Vec2 b)

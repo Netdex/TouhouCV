@@ -30,9 +30,12 @@ namespace TouhouCV
         private IntPtr hWnd;
         private IntPtr hndl;
 
+        private Image<Gray, byte> _imgPower;
+
         private void TouhouCV_Load(object sender, EventArgs e)
         {
             _capture = new DxScreenCapture();
+            _imgPower = new Image<Gray, byte>(Properties.Resources.Power);
 
             Process[] processes = Process.GetProcessesByName("th10e");
             if (processes.Length < 1)
@@ -83,8 +86,45 @@ namespace TouhouCV
             var scrn = new Image<Gray, byte>(bmp);
             bmp.Dispose();
 
+            _force = new Vec2();
+
             Image<Bgr, byte> imageToShow = scrn.Copy().Convert<Bgr, byte>();
             var binthresh = scrn.SmoothBlur(3, 3).ThresholdBinary(new Gray(248), new Gray(255));
+
+            using (Image<Gray, float> result = scrn.MatchTemplate(_imgPower, TemplateMatchingType.CcoeffNormed))
+            {
+                double minDistSq = double.MaxValue;
+                int minX = 0, minY = 0;
+                for (int y = 0; y < result.Height; y++)
+                {
+                    for (int x = 0; x < result.Width; x++)
+                    {
+
+                        if (result.Data[y, x, 0] > 0.9)
+                        {
+                            double dist =
+                                (x - _playerPos.X) * (x - _playerPos.X) +
+                                (y - _playerPos.Y) * (y - _playerPos.Y);
+                            if (dist < minDistSq)
+                            {
+                                minDistSq = dist;
+                                minX = x;
+                                minY = y;
+                            }
+                        }
+                    }
+                }
+                if (minDistSq != double.MaxValue)
+                {
+                    Rectangle match = new Rectangle(minX, minY, _imgPower.Width, _imgPower.Height);
+                    imageToShow.Draw(match, new Bgr(Color.Yellow), 2);
+                    imageToShow.Draw(new LineSegment2DF(match.Location, _playerPos), new Bgr(Color.Yellow), 1);
+                    Vec2 acc = Vec2.CalculateForce(
+                        new Vec2(match.X, match.Y),
+                        new Vec2(_playerPos.X + _imgPower.Width / 2.0, _playerPos.Y + _imgPower.Height / 2.0), 5000);
+                    _force += acc;
+                }
+            }
 
             // Read player position from memory
             _playerPos = GetPlayerPosition();
@@ -98,7 +138,7 @@ namespace TouhouCV
             uint noBlobs = bDetect.Detect(binthresh, resultingImgBlobs);
 
             // Detect blobs (bullets) on screen
-            _force = new Vec2();
+
             foreach (CvBlob targetBlob in resultingImgBlobs.Values)
             {
                 if (targetBlob.Area > 5)
@@ -153,7 +193,7 @@ namespace TouhouCV
             // Spam Z
             DInput.SendKey(0x2C, DInput.KEYEVENTF_SCANCODE);
             // Ensure the force is large enough to worry about
-            if (Math.Abs(force.X) > 1)
+            if (Math.Abs(force.X) > 0.5)
             {
                 if (force.X < 0)
                 {
@@ -171,7 +211,7 @@ namespace TouhouCV
                 DInput.SendKey(0x4D, DInput.KEYEVENTF_KEYUP | DInput.KEYEVENTF_SCANCODE);
                 DInput.SendKey(0x4B, DInput.KEYEVENTF_KEYUP | DInput.KEYEVENTF_SCANCODE);
             }
-            if (Math.Abs(force.Y) > 1)
+            if (Math.Abs(force.Y) > 0.5)
             {
                 if (force.Y < 0)
                 {
