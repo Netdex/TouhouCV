@@ -91,7 +91,8 @@ namespace TouhouCV
             Image<Bgr, byte> imageToShow = scrn.Copy().Convert<Bgr, byte>();
             var binthresh = scrn.SmoothBlur(3, 3).ThresholdBinary(new Gray(248), new Gray(255));
 
-            using (Image<Gray, float> result = scrn.MatchTemplate(_imgPower, TemplateMatchingType.CcoeffNormed))
+            // Look for power
+            using (Image<Gray, float> result = scrn.MatchTemplate(_imgPower, TemplateMatchingType.SqdiffNormed))
             {
                 double minDistSq = double.MaxValue;
                 int minX = 0, minY = 0;
@@ -99,8 +100,7 @@ namespace TouhouCV
                 {
                     for (int x = 0; x < result.Width; x++)
                     {
-
-                        if (result.Data[y, x, 0] > 0.9)
+                        if (result.Data[y, x, 0] < 0.17)
                         {
                             double dist =
                                 (x - _playerPos.X) * (x - _playerPos.X) +
@@ -133,12 +133,10 @@ namespace TouhouCV
                 new Bgr(Color.Lime),
                 2);
 
+            // Detect blobs (bullets) on screen
             CvBlobs resultingImgBlobs = new CvBlobs();
             CvBlobDetector bDetect = new CvBlobDetector();
             uint noBlobs = bDetect.Detect(binthresh, resultingImgBlobs);
-
-            // Detect blobs (bullets) on screen
-
             foreach (CvBlob targetBlob in resultingImgBlobs.Values)
             {
                 if (targetBlob.Area > 5)
@@ -160,7 +158,7 @@ namespace TouhouCV
                         }
                     }
                     // Ensure the bullet is in the correct range
-                    if (minDist < 150)
+                    if (minDist < 100)
                     {
                         // Calculate forces
                         Vec2 acc = Vec2.CalculateForce(new Vec2(minPoint.X, minPoint.Y),
@@ -175,10 +173,10 @@ namespace TouhouCV
                 _force += new Vec2(Vec2.CalculateForce(BOX_SIZE.Width - _playerPos.X, -5000), 0);
             if (_playerPos.X < 60)
                 _force += new Vec2(Vec2.CalculateForce(_playerPos.X, 5000), 0);
-            if (BOX_SIZE.Height - _playerPos.Y < 60)
+            if (BOX_SIZE.Height - _playerPos.Y < 50)
                 _force += new Vec2(0, Vec2.CalculateForce(BOX_SIZE.Height - _playerPos.Y, -5000));
-            if (_playerPos.Y < 50)
-                _force += new Vec2(0, Vec2.CalculateForce(_playerPos.Y, 20000));
+            if (_playerPos.Y < 100)
+                _force += new Vec2(0, Vec2.CalculateForce(_playerPos.Y, 5000));
 
             // Draw force vector
             imageToShow.Draw(
@@ -190,10 +188,12 @@ namespace TouhouCV
 
         public void DoPlayerMovement(Vec2 force)
         {
+            if (force.X > 5000 || force.Y > 5000)
+                Bomb();
             // Spam Z
             DInput.SendKey(0x2C, DInput.KEYEVENTF_SCANCODE);
             // Ensure the force is large enough to worry about
-            if (Math.Abs(force.X) > 0.5)
+            if (Math.Abs(force.X) > 0.3)
             {
                 if (force.X < 0)
                 {
@@ -211,7 +211,7 @@ namespace TouhouCV
                 DInput.SendKey(0x4D, DInput.KEYEVENTF_KEYUP | DInput.KEYEVENTF_SCANCODE);
                 DInput.SendKey(0x4B, DInput.KEYEVENTF_KEYUP | DInput.KEYEVENTF_SCANCODE);
             }
-            if (Math.Abs(force.Y) > 0.5)
+            if (Math.Abs(force.Y) > 0.3)
             {
                 if (force.Y < 0)
                 {
@@ -230,6 +230,18 @@ namespace TouhouCV
                 DInput.SendKey(0x48, DInput.KEYEVENTF_KEYUP | DInput.KEYEVENTF_SCANCODE);
             }
         }
+
+        public void Bomb()
+        {
+            DInput.SendKey(0x4B, DInput.KEYEVENTF_KEYUP | DInput.KEYEVENTF_SCANCODE);
+            DInput.SendKey(0x4D, DInput.KEYEVENTF_KEYUP | DInput.KEYEVENTF_SCANCODE);
+            DInput.SendKey(0x2C, DInput.KEYEVENTF_KEYUP | DInput.KEYEVENTF_SCANCODE);
+            Thread.Sleep(20);
+            DInput.SendKey(0x2D, DInput.KEYEVENTF_SCANCODE);
+            Thread.Sleep(20);
+            DInput.SendKey(0x2D, DInput.KEYEVENTF_KEYUP | DInput.KEYEVENTF_SCANCODE);
+        }
+
         public PointF GetPlayerPosition()
         {
             IntPtr baseAddr = new IntPtr(0x400000);
