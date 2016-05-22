@@ -23,6 +23,7 @@ namespace TouhouCV
         }
 
         private static readonly Rectangle BOX_SIZE = new Rectangle(33, 16, 384, 448);
+        private const int DETECTION_RADIUS = 100;
 
         private DxScreenCapture _capture;
         private Rectangle _screenRegion;
@@ -35,7 +36,7 @@ namespace TouhouCV
         private void TouhouCV_Load(object sender, EventArgs e)
         {
             _capture = new DxScreenCapture();
-            _imgPower = new Image<Gray, byte>(Properties.Resources.Power);
+            _imgPower = new Image<Gray, byte>(Resources.Power);
 
             Process[] processes = Process.GetProcessesByName("th10e");
             if (processes.Length < 1)
@@ -89,9 +90,21 @@ namespace TouhouCV
             _force = new Vec2();
 
             Image<Bgr, byte> imageToShow = scrn.Copy().Convert<Bgr, byte>();
-            var binthresh = scrn.SmoothBlur(3, 3).ThresholdBinary(new Gray(248), new Gray(255));
 
+            // Read player position from memory
+            _playerPos = GetPlayerPosition();
+            imageToShow.Draw(
+                new Rectangle((int)(_playerPos.X - 3), (int)(_playerPos.Y - 3), 6, 6),
+                new Bgr(Color.Lime),
+                2);
+            imageToShow.Draw(new CircleF(_playerPos, DETECTION_RADIUS), new Bgr(Color.Aqua), 1);
             // Look for power
+            scrn.ROI = new Rectangle(
+                (int) Math.Max(_playerPos.X - 100, 0), 
+                (int) Math.Max(_playerPos.Y - 50, 0), 
+                (int) Math.Min(BOX_SIZE.Width - (_playerPos.X - 100), 200),
+                (int) Math.Min(BOX_SIZE.Height - (_playerPos.Y - 50), 100));
+            imageToShow.Draw(scrn.ROI, new Bgr(Color.Yellow), 1);
             using (Image<Gray, float> result = scrn.MatchTemplate(_imgPower, TemplateMatchingType.SqdiffNormed))
             {
                 double minDistSq = double.MaxValue;
@@ -116,23 +129,23 @@ namespace TouhouCV
                 }
                 if (minDistSq != double.MaxValue)
                 {
-                    Rectangle match = new Rectangle(minX, minY, _imgPower.Width, _imgPower.Height);
+                    Rectangle match = new Rectangle(minX + scrn.ROI.X, minY + scrn.ROI.Y, _imgPower.Width, _imgPower.Height);
                     imageToShow.Draw(match, new Bgr(Color.Yellow), 2);
                     imageToShow.Draw(new LineSegment2DF(match.Location, _playerPos), new Bgr(Color.Yellow), 1);
                     Vec2 acc = Vec2.CalculateForce(
-                        new Vec2(match.X, match.Y),
-                        new Vec2(_playerPos.X + _imgPower.Width / 2.0, _playerPos.Y + _imgPower.Height / 2.0), 5000);
+                        new Vec2(match.X + _imgPower.Width / 2.0, match.Y + _imgPower.Height / 2.0),
+                        new Vec2(_playerPos.X , _playerPos.Y ), 5000);
                     _force += acc;
                 }
             }
+            scrn.ROI = new Rectangle(
+                (int) Math.Max(_playerPos.X - DETECTION_RADIUS, 0),
+                (int) Math.Max(_playerPos.Y - DETECTION_RADIUS, 0),
+                (int) Math.Min(BOX_SIZE.Width - (_playerPos.X - DETECTION_RADIUS), DETECTION_RADIUS * 2),
+                (int) Math.Min(BOX_SIZE.Height - (_playerPos.Y - DETECTION_RADIUS), DETECTION_RADIUS * 2));
+            imageToShow.Draw(scrn.ROI, new Bgr(Color.Red), 1);
 
-            // Read player position from memory
-            _playerPos = GetPlayerPosition();
-            imageToShow.Draw(
-                new Rectangle((int)(_playerPos.X - 3), (int)(_playerPos.Y - 3), 6, 6),
-                new Bgr(Color.Lime),
-                2);
-
+            var binthresh = scrn.SmoothBlur(3, 3).ThresholdBinary(new Gray(248), new Gray(255));
             // Detect blobs (bullets) on screen
             CvBlobs resultingImgBlobs = new CvBlobs();
             CvBlobDetector bDetect = new CvBlobDetector();
@@ -141,6 +154,7 @@ namespace TouhouCV
             {
                 if (targetBlob.Area > 5)
                 {
+                    imageToShow.ROI = scrn.ROI;
                     imageToShow.FillConvexPoly(targetBlob.GetContour(), new Bgr(Color.Red));
 
                     // Find closest point on blob contour to player
@@ -148,18 +162,21 @@ namespace TouhouCV
                     double minDist = double.MaxValue;
                     foreach (var point in targetBlob.GetContour())
                     {
+                        Point adj = new Point(point.X + scrn.ROI.X, point.Y + scrn.ROI.Y);
                         double dist =
-                            Math.Sqrt(Math.Pow(point.X - _playerPos.X, 2) + Math.Pow(point.Y - _playerPos.Y, 2));
+                                Math.Pow(adj.X - _playerPos.X, 2) + 
+                                Math.Pow(adj.Y - _playerPos.Y, 2);
 
                         if (dist < minDist)
                         {
-                            minPoint = point;
+                            minPoint = adj;
                             minDist = dist;
                         }
                     }
                     // Ensure the bullet is in the correct range
-                    if (minDist < 100)
+                    if (minDist < DETECTION_RADIUS * DETECTION_RADIUS)
                     {
+                        imageToShow.ROI = Rectangle.Empty;
                         // Calculate forces
                         Vec2 acc = Vec2.CalculateForce(new Vec2(minPoint.X, minPoint.Y),
                             new Vec2(_playerPos.X, _playerPos.Y), -5000);
@@ -168,6 +185,9 @@ namespace TouhouCV
                     }
                 }
             }
+            scrn.ROI = Rectangle.Empty;
+            imageToShow.ROI = Rectangle.Empty;
+            
             // Account for border force, to prevent cornering
             if (BOX_SIZE.Width - _playerPos.X < 60)
                 _force += new Vec2(Vec2.CalculateForce(BOX_SIZE.Width - _playerPos.X, -5000), 0);
@@ -188,7 +208,7 @@ namespace TouhouCV
 
         public void DoPlayerMovement(Vec2 force)
         {
-            if (force.X > 5000 || force.Y > 5000)
+            if (force.X > 3000 || force.Y > 3000)
                 Bomb();
             // Spam Z
             DInput.SendKey(0x2C, DInput.KEYEVENTF_SCANCODE);
