@@ -55,6 +55,7 @@ namespace TouhouCV
             this.Controls.Add(this.imageBox);
             this.Name = "TouhouCV";
             this.Text = "TouhouCV";
+            this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.TouhouCV_FormClosing);
             this.Load += new System.EventHandler(this.TouhouCV_Load);
             ((System.ComponentModel.ISupportInitialize)(this.imageBox)).EndInit();
             this.ResumeLayout(false);
