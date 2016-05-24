@@ -40,10 +40,10 @@ namespace TouhouCV
             _capture = new DxScreenCapture();
             _imgPower = new Image<Gray, byte>(Resources.Power);
 
-            Process[] processes = Process.GetProcessesByName("th10e");
+            Process[] processes = Process.GetProcessesByName("th08");
             if (processes.Length < 1)
             {
-                Console.WriteLine("Process 'th10.exe' is not running!");
+                Console.WriteLine("Process 'TOUHOU GAME' is not running!");
                 Environment.Exit(0);
             }
             _process = processes[0];
@@ -64,7 +64,7 @@ namespace TouhouCV
                 {
                     ProcessCapture();
                     DoPlayerMovement(_force);
-                    Thread.Sleep(12);
+                    Thread.Sleep(10);
                 }
             }).Start();
         }
@@ -161,8 +161,8 @@ namespace TouhouCV
                     {
                         Point adj = new Point(point.X + scrn.ROI.X, point.Y + scrn.ROI.Y);
                         double dist =
-                                Math.Pow(adj.X - _playerPos.X, 2) +
-                                Math.Pow(adj.Y - _playerPos.Y, 2);
+                                (adj.X - _playerPos.X) * (adj.X - _playerPos.X) +
+                                (adj.Y - _playerPos.Y) * (adj.Y - _playerPos.Y);
 
                         if (dist < minDist)
                         {
@@ -186,7 +186,7 @@ namespace TouhouCV
             scrn.ROI = Rectangle.Empty;
             imageToShow.ROI = Rectangle.Empty;
 
-            _detectionRadius = (int) ((_detectionRadius * 3 + Math.Max(30.0, INITIAL_DETECTION_RADIUS / (1 + blobCount * 0.15))) / 4.0);
+            _detectionRadius = (int) ((_detectionRadius * 3 + Math.Max(30.0, INITIAL_DETECTION_RADIUS / (1 + blobCount * 0.3))) / 4.0);
 
             // Account for border force, to prevent cornering
             //if (BOX_SIZE.Width - _playerPos.X < 120)
@@ -195,7 +195,7 @@ namespace TouhouCV
             _force += new Vec2(Vec2.CalculateForce(_playerPos.X, 4000), 0);
             if (BOX_SIZE.Height - _playerPos.Y < 50)
                 _force += new Vec2(0, Vec2.CalculateForce(BOX_SIZE.Height - _playerPos.Y, -2000));
-            if (_playerPos.Y < 100)
+            if (_playerPos.Y < 200)
                 _force += new Vec2(0, Vec2.CalculateForce(_playerPos.Y, 5000));
 
             imageToShow.Draw("BLOB_COUNT: " + blobCount, new Point(10, 20), FontFace.HersheyPlain, 1, new Bgr(Color.White), 1);
@@ -209,7 +209,7 @@ namespace TouhouCV
 
         public void DoPlayerMovement(Vec2 force)
         {
-            if (force.X > 1000 || force.Y > 1000)
+            if (Math.Abs(force.X) > 1500 || Math.Abs(force.Y) > 1500)
                 Bomb();
             // Spam Z
             DInput.SendKey(0x2C, DInput.KEYEVENTF_SCANCODE);
@@ -274,15 +274,15 @@ namespace TouhouCV
 
         public PointF GetPlayerPosition()
         {
-            IntPtr baseAddr = new IntPtr(0x400000);
+            //IntPtr baseAddr = new IntPtr(0x400000);
             /*
             MoF: 0x00077834
             SA: 0x000A8EB4
             LoLK: 0x000E9BB8
             */
-            IntPtr ptrAddr = IntPtr.Add(baseAddr, 0x00077834);
+            //IntPtr ptrAddr = IntPtr.Add(baseAddr, 0x00077834);
             int addr;
-            Win32.ReadMemoryInt32(hndl, ptrAddr, out addr);
+            //Win32.ReadMemoryInt32(hndl, ptrAddr, out addr);
             /*
             EOSD: 0x006CAA68
             IN: 0x017D6110
@@ -290,7 +290,7 @@ namespace TouhouCV
             SA: 0x3FC
             LoLK: 0x508
             */
-            addr += 0x354;
+            addr = 0x017D6110;
             float x, y;
             Win32.ReadMemoryFloat(hndl, new IntPtr(addr), out x);
             Win32.ReadMemoryFloat(hndl, new IntPtr(addr + 4), out y);
