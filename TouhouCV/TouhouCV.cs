@@ -23,7 +23,9 @@ namespace TouhouCV
         }
 
         private static readonly Rectangle BOX_SIZE = new Rectangle(33, 16, 384, 448);
-        private const int DETECTION_RADIUS = 60;
+
+        public const int INITIAL_DETECTION_RADIUS = 70;
+        private int _detectionRadius = INITIAL_DETECTION_RADIUS;
 
         private DxScreenCapture _capture;
         private Rectangle _screenRegion;
@@ -38,7 +40,7 @@ namespace TouhouCV
             _capture = new DxScreenCapture();
             _imgPower = new Image<Gray, byte>(Resources.Power);
 
-            Process[] processes = Process.GetProcessesByName("th11e");
+            Process[] processes = Process.GetProcessesByName("th10e");
             if (processes.Length < 1)
             {
                 Console.WriteLine("Process 'th10.exe' is not running!");
@@ -62,7 +64,7 @@ namespace TouhouCV
                 {
                     ProcessCapture();
                     DoPlayerMovement(_force);
-                    Thread.Sleep(7);
+                    Thread.Sleep(12);
                 }
             }).Start();
         }
@@ -91,13 +93,13 @@ namespace TouhouCV
                 new Rectangle((int)(_playerPos.X - 3), (int)(_playerPos.Y - 3), 6, 6),
                 new Bgr(Color.Lime),
                 2);
-            imageToShow.Draw(new CircleF(_playerPos, DETECTION_RADIUS), new Bgr(Color.Aqua), 1);
+            imageToShow.Draw(new CircleF(_playerPos, _detectionRadius), new Bgr(Color.Aqua), 1);
             // Look for power
             scrn.ROI = new Rectangle(
                 (int)Math.Max(_playerPos.X - 100, 0),
-                (int)Math.Max(_playerPos.Y - 50, 0),
+                (int)Math.Max(_playerPos.Y - 75, 0),
                 (int)Math.Min(BOX_SIZE.Width - (_playerPos.X - 100), 200),
-                (int)Math.Min(BOX_SIZE.Height - (_playerPos.Y - 50), 100));
+                (int)Math.Min(BOX_SIZE.Height - (_playerPos.Y - 75), 100));
             imageToShow.Draw(scrn.ROI, new Bgr(Color.Yellow), 1);
             using (Image<Gray, float> result = scrn.MatchTemplate(_imgPower, TemplateMatchingType.SqdiffNormed))
             {
@@ -133,10 +135,10 @@ namespace TouhouCV
                 }
             }
             scrn.ROI = new Rectangle(
-                (int)Math.Max(_playerPos.X - DETECTION_RADIUS, 0),
-                (int)Math.Max(_playerPos.Y - DETECTION_RADIUS, 0),
-                (int)Math.Min(BOX_SIZE.Width - (_playerPos.X - DETECTION_RADIUS), DETECTION_RADIUS * 2),
-                (int)Math.Min(BOX_SIZE.Height - (_playerPos.Y - DETECTION_RADIUS), DETECTION_RADIUS * 2));
+                (int)Math.Max(_playerPos.X - _detectionRadius, 0),
+                (int)Math.Max(_playerPos.Y - _detectionRadius, 0),
+                (int)Math.Min(BOX_SIZE.Width - (_playerPos.X - _detectionRadius), _detectionRadius * 2),
+                (int)Math.Min(BOX_SIZE.Height - (_playerPos.Y - _detectionRadius), _detectionRadius * 2));
             imageToShow.Draw(scrn.ROI, new Bgr(Color.Red), 1);
 
             var binthresh = scrn.SmoothBlur(3, 3).ThresholdBinary(new Gray(248), new Gray(255));
@@ -169,7 +171,7 @@ namespace TouhouCV
                         }
                     }
                     // Ensure the bullet is in the correct range
-                    if (minDist < DETECTION_RADIUS * DETECTION_RADIUS)
+                    if (minDist < _detectionRadius * _detectionRadius)
                     {
                         imageToShow.ROI = Rectangle.Empty;
                         // Calculate forces
@@ -183,6 +185,8 @@ namespace TouhouCV
             }
             scrn.ROI = Rectangle.Empty;
             imageToShow.ROI = Rectangle.Empty;
+
+            _detectionRadius = (int) ((_detectionRadius * 3 + Math.Max(30.0, INITIAL_DETECTION_RADIUS / (1 + blobCount * 0.15))) / 4.0);
 
             // Account for border force, to prevent cornering
             //if (BOX_SIZE.Width - _playerPos.X < 120)
@@ -276,7 +280,7 @@ namespace TouhouCV
             SA: 0x000A8EB4
             LoLK: 0x000E9BB8
             */
-            IntPtr ptrAddr = IntPtr.Add(baseAddr, 0x000A8EB4);
+            IntPtr ptrAddr = IntPtr.Add(baseAddr, 0x00077834);
             int addr;
             Win32.ReadMemoryInt32(hndl, ptrAddr, out addr);
             /*
@@ -286,7 +290,7 @@ namespace TouhouCV
             SA: 0x3FC
             LoLK: 0x508
             */
-            addr += 0x3FC;
+            addr += 0x354;
             float x, y;
             Win32.ReadMemoryFloat(hndl, new IntPtr(addr), out x);
             Win32.ReadMemoryFloat(hndl, new IntPtr(addr + 4), out y);
