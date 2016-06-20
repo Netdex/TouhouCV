@@ -40,7 +40,7 @@ namespace TouhouCV
             _capture = new DxScreenCapture();
             _imgPower = new Image<Gray, byte>(Resources.Power);
 
-            Process[] processes = Process.GetProcessesByName("th08");
+            Process[] processes = Process.GetProcessesByName("th10e");
             if (processes.Length < 1)
             {
                 Console.WriteLine("Process 'TOUHOU GAME' is not running!");
@@ -141,7 +141,7 @@ namespace TouhouCV
                 (int)Math.Min(BOX_SIZE.Height - (_playerPos.Y - _detectionRadius), _detectionRadius * 2));
             imageToShow.Draw(scrn.ROI, new Bgr(Color.Red), 1);
 
-            var binthresh = scrn.SmoothBlur(3, 3).ThresholdBinary(new Gray(248), new Gray(255));
+            var binthresh = scrn.SmoothBlur(3, 3).ThresholdBinary(new Gray(220), new Gray(255));
             // Detect blobs (bullets) on screen
             CvBlobs resultingImgBlobs = new CvBlobs();
             CvBlobDetector bDetect = new CvBlobDetector();
@@ -149,7 +149,7 @@ namespace TouhouCV
             int blobCount = 0;
             foreach (CvBlob targetBlob in resultingImgBlobs.Values)
             {
-                if (targetBlob.Area > 5)
+                if (targetBlob.Area > 15)
                 {
                     imageToShow.ROI = scrn.ROI;
                     imageToShow.FillConvexPoly(targetBlob.GetContour(), new Bgr(Color.Red));
@@ -209,7 +209,7 @@ namespace TouhouCV
 
         public void DoPlayerMovement(Vec2 force)
         {
-            if (Math.Abs(force.X) > 1500 || Math.Abs(force.Y) > 1500)
+            if (Math.Abs(force.X) > 3000 || Math.Abs(force.Y) > 3000)
                 Bomb();
             // Spam Z
             DInput.SendKey(0x2C, DInput.KEYEVENTF_SCANCODE);
@@ -274,23 +274,25 @@ namespace TouhouCV
 
         public PointF GetPlayerPosition()
         {
-            //IntPtr baseAddr = new IntPtr(0x400000);
+            IntPtr baseAddr = new IntPtr(0x400000);
             /*
             MoF: 0x00077834
             SA: 0x000A8EB4
+            UFO: 0x000B4514
             LoLK: 0x000E9BB8
             */
-            //IntPtr ptrAddr = IntPtr.Add(baseAddr, 0x00077834);
+            IntPtr ptrAddr = IntPtr.Add(baseAddr, 0x00077834);
             int addr;
-            //Win32.ReadMemoryInt32(hndl, ptrAddr, out addr);
+            Win32.ReadMemoryInt32(hndl, ptrAddr, out addr);
             /*
             EOSD: 0x006CAA68
             IN: 0x017D6110
             MoF: 0x354
             SA: 0x3FC
+            UFO: 0x444
             LoLK: 0x508
             */
-            addr = 0x017D6110;
+            addr += 0x354;
             float x, y;
             Win32.ReadMemoryFloat(hndl, new IntPtr(addr), out x);
             Win32.ReadMemoryFloat(hndl, new IntPtr(addr + 4), out y);
