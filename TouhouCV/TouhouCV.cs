@@ -4,103 +4,103 @@ using System.Drawing;
 using System.Globalization;
 using System.Threading;
 using System.Windows.Forms;
+using Capture;
+using Capture.Interface;
 using Emgu.CV;
 using Emgu.CV.Cvb;
 using Emgu.CV.CvEnum;
 using Emgu.CV.Structure;
 using Emgu.Util;
 using Emgu.CV.VideoSurveillance;
-using SlimDX.Direct3D9;
+using SharpDX;
+using SharpDX.Direct3D9;
 using TouhouCV.Properties;
+using Point = System.Drawing.Point;
+using Rectangle = System.Drawing.Rectangle;
 
 namespace TouhouCV
 {
-    public partial class TouhouCV : Form
+    public class TouhouCV
     {
         public TouhouCV()
         {
-            InitializeComponent();
-        }
-
-        private static readonly Rectangle BOX_SIZE = new Rectangle(33, 16, 384, 448);
-
-        public const int INITIAL_DETECTION_RADIUS = 70;
-        private int _detectionRadius = INITIAL_DETECTION_RADIUS;
-
-        private DxScreenCapture _capture;
-        private Rectangle _screenRegion;
-        private Process _process;
-        private IntPtr hWnd;
-        private IntPtr hndl;
-
-        private Image<Gray, byte> _imgPower;
-
-        private void TouhouCV_Load(object sender, EventArgs e)
-        {
-            _capture = new DxScreenCapture();
+            string proc = "th10e";
+            _capture = new DXHook();
+            _capture.AttachProcess(proc);
             _imgPower = new Image<Gray, byte>(Resources.Power);
 
-            Process[] processes = Process.GetProcessesByName("th10e");
-            if (processes.Length < 1)
+            // Start visualization form
+            _form = new THViz();
+            Thread controlThread = new Thread(() =>
             {
-                Console.WriteLine("Process 'TOUHOU GAME' is not running!");
-                Environment.Exit(0);
-            }
-            _process = processes[0];
+                Application.EnableVisualStyles();
+                Application.Run(_form);
+            });
+            controlThread.SetApartmentState(ApartmentState.STA);
+            controlThread.Start();
+
+            _process = _capture.Process;
             hndl = Win32.GetProcessHandle(_process);
             hWnd = _process.MainWindowHandle;
-            var topLeft = new Win32.POINT(0, 0);
-            Win32.ClientToScreen(hWnd, ref topLeft);
-            _screenRegion = new Rectangle(
-                new Point(topLeft.X + BOX_SIZE.X, topLeft.Y + BOX_SIZE.Y),
-                new Size(BOX_SIZE.Width, BOX_SIZE.Height));
-            this.Location = new Point(topLeft.X + 680, topLeft.Y);
-
             Win32.SetForegroundWindow(hWnd);
 
             new Thread(() =>
             {
-                while (!this.IsDisposed)
+                while (true)
                 {
                     ProcessCapture();
-                    DoPlayerMovement(_force);
-                    Thread.Sleep(10);
+                    //DoPlayerMovement(_force);
+                    Thread.Sleep(7);
                 }
             }).Start();
         }
 
+        private static readonly Rectangle BOX_SIZE = new Rectangle(32, 16, 384, 448);
+
+        public const int INITIAL_DETECTION_RADIUS = 70;
+        private float _detectionRadius = INITIAL_DETECTION_RADIUS;
+
+        private DXHook _capture;
+        private Process _process;
+        private IntPtr hWnd;
+        private IntPtr hndl;
+        private THViz _form;
+        private Image<Gray, byte> _imgPower;
+
         private PointF _playerPos;
         private Vec2 _force;
-
-        private void ProcessCapture()
+        private unsafe void ProcessCapture()
         {
             // Create screen capture with DirectX surfaces
-            var surface = _capture.CaptureScreen(); ;
-            var surfaceStream = Surface.ToStream(surface, ImageFileFormat.Bmp, _screenRegion);
-            Bitmap bmp = new Bitmap(surfaceStream);
-            surface.Dispose();
-            surfaceStream.Dispose();
-            var scrn = new Image<Gray, byte>(bmp);
-            bmp.Dispose();
+            Screenshot ssht = _capture.Capture();
+            Image<Bgra, byte> imageToShow;
+            Image<Gray, byte> scrn;
+            
+            fixed (byte* p = ssht.Data)
+            {
+                IntPtr ptr = (IntPtr)p;
+                imageToShow = new Image<Bgra, byte>(ssht.Width, ssht.Height, ssht.Stride, ptr) { ROI = BOX_SIZE };
+                scrn = imageToShow.Convert<Gray, byte>();
+            }
+            ssht.Dispose();
 
             _force = new Vec2();
-
-            Image<Bgr, byte> imageToShow = scrn.Copy().Convert<Bgr, byte>();
 
             // Read player position from memory
             _playerPos = GetPlayerPosition();
             imageToShow.Draw(
                 new Rectangle((int)(_playerPos.X - 3), (int)(_playerPos.Y - 3), 6, 6),
-                new Bgr(Color.Lime),
+                new Bgra(0, 255, 0, 255),
                 2);
-            imageToShow.Draw(new CircleF(_playerPos, _detectionRadius), new Bgr(Color.Aqua), 1);
+
+            imageToShow.Draw(new CircleF(_playerPos, _detectionRadius), new Bgra(0, 255, 255, 255), 1);
             // Look for power
             scrn.ROI = new Rectangle(
                 (int)Math.Max(_playerPos.X - 100, 0),
                 (int)Math.Max(_playerPos.Y - 75, 0),
                 (int)Math.Min(BOX_SIZE.Width - (_playerPos.X - 100), 200),
                 (int)Math.Min(BOX_SIZE.Height - (_playerPos.Y - 75), 100));
-            imageToShow.Draw(scrn.ROI, new Bgr(Color.Yellow), 1);
+            imageToShow.Draw(scrn.ROI, new Bgra(255, 255, 0, 255), 1);
             using (Image<Gray, float> result = scrn.MatchTemplate(_imgPower, TemplateMatchingType.SqdiffNormed))
             {
                 double minDistSq = double.MaxValue;
@@ -126,85 +126,91 @@ namespace TouhouCV
                 if (minDistSq != double.MaxValue)
                 {
                     Rectangle match = new Rectangle(minX + scrn.ROI.X, minY + scrn.ROI.Y, _imgPower.Width, _imgPower.Height);
-                    imageToShow.Draw(match, new Bgr(Color.Yellow), 2);
-                    imageToShow.Draw(new LineSegment2DF(match.Location, _playerPos), new Bgr(Color.Yellow), 1);
+                    imageToShow.Draw(match, new Bgra(0, 255, 255, 255), 2);
+                    imageToShow.Draw(new LineSegment2DF(match.Location, _playerPos), new Bgra(0, 255, 255, 255), 1);
                     Vec2 acc = Vec2.CalculateForce(
                         new Vec2(match.X + _imgPower.Width / 2.0, match.Y + _imgPower.Height / 2.0),
                         new Vec2(_playerPos.X, _playerPos.Y), 4000);
                     _force += acc;
                 }
             }
+
+            // Processing bounding box
             scrn.ROI = new Rectangle(
                 (int)Math.Max(_playerPos.X - _detectionRadius, 0),
                 (int)Math.Max(_playerPos.Y - _detectionRadius, 0),
-                (int)Math.Min(BOX_SIZE.Width - (_playerPos.X - _detectionRadius), _detectionRadius * 2),
-                (int)Math.Min(BOX_SIZE.Height - (_playerPos.Y - _detectionRadius), _detectionRadius * 2));
-            imageToShow.Draw(scrn.ROI, new Bgr(Color.Red), 1);
+                (int)Math.Min(BOX_SIZE.Width - ((int)_playerPos.X - _detectionRadius), _detectionRadius * 2),
+                (int)Math.Min(BOX_SIZE.Height - ((int)_playerPos.Y - _detectionRadius), _detectionRadius * 2));
+            imageToShow.Draw(scrn.ROI, new Bgra(0, 0, 255, 255), 1);
 
-            var binthresh = scrn.SmoothBlur(3, 3).ThresholdBinary(new Gray(220), new Gray(255));
+            var binthresh = scrn.SmoothBlur(3, 3).ThresholdBinary(new Gray(230), new Gray(255)); //220
             // Detect blobs (bullets) on screen
             CvBlobs resultingImgBlobs = new CvBlobs();
             CvBlobDetector bDetect = new CvBlobDetector();
             uint noBlobs = bDetect.Detect(binthresh, resultingImgBlobs);
             int blobCount = 0;
+            resultingImgBlobs.FilterByArea(10, 500);
             foreach (CvBlob targetBlob in resultingImgBlobs.Values)
             {
-                if (targetBlob.Area > 15)
+                imageToShow.ROI = new Rectangle(scrn.ROI.X + BOX_SIZE.X, scrn.ROI.Y + BOX_SIZE.Y, scrn.ROI.Width, scrn.ROI.Height);
+                imageToShow.FillConvexPoly(targetBlob.GetContour(), new Bgra(0, 0, 255, 255));
+
+                // Find closest point on blob contour to player
+                Point minPoint = targetBlob.GetContour()[0];
+                double minDist = double.MaxValue;
+                foreach (var point in targetBlob.GetContour())
                 {
-                    imageToShow.ROI = scrn.ROI;
-                    imageToShow.FillConvexPoly(targetBlob.GetContour(), new Bgr(Color.Red));
+                    Point adj = new Point(point.X + scrn.ROI.X, point.Y + scrn.ROI.Y);
+                    double dist =
+                            (adj.X - _playerPos.X) * (adj.X - _playerPos.X) +
+                            (adj.Y - _playerPos.Y) * (adj.Y - _playerPos.Y);
 
-                    // Find closest point on blob contour to player
-                    Point minPoint = targetBlob.GetContour()[0];
-                    double minDist = double.MaxValue;
-                    foreach (var point in targetBlob.GetContour())
+                    if (dist < minDist)
                     {
-                        Point adj = new Point(point.X + scrn.ROI.X, point.Y + scrn.ROI.Y);
-                        double dist =
-                                (adj.X - _playerPos.X) * (adj.X - _playerPos.X) +
-                                (adj.Y - _playerPos.Y) * (adj.Y - _playerPos.Y);
-
-                        if (dist < minDist)
-                        {
-                            minPoint = adj;
-                            minDist = dist;
-                        }
-                    }
-                    // Ensure the bullet is in the correct range
-                    if (minDist < _detectionRadius * _detectionRadius)
-                    {
-                        imageToShow.ROI = Rectangle.Empty;
-                        // Calculate forces
-                        Vec2 acc = Vec2.CalculateForce(new Vec2(minPoint.X, minPoint.Y),
-                            new Vec2(_playerPos.X, _playerPos.Y), -5000);
-                        _force += acc;
-                        imageToShow.Draw(new LineSegment2DF(_playerPos, minPoint), new Bgr(Color.Cyan), 1);
-                        blobCount++;
+                        minPoint = adj;
+                        minDist = dist;
                     }
                 }
+                // Ensure the bullet is in the correct range
+                if (minDist < _detectionRadius * _detectionRadius)
+                {
+                    imageToShow.ROI = BOX_SIZE;
+                    // Calculate forces
+                    Vec2 acc = Vec2.CalculateForce(new Vec2(minPoint.X, minPoint.Y),
+                        new Vec2(_playerPos.X, _playerPos.Y), -5000);
+                    _force += acc;
+                    imageToShow.Draw(new LineSegment2DF(_playerPos, minPoint), new Bgra(0, 255, 128, 255), 1);
+                    blobCount++;
+                }
             }
+            imageToShow.ROI = BOX_SIZE;
             scrn.ROI = Rectangle.Empty;
-            imageToShow.ROI = Rectangle.Empty;
 
-            _detectionRadius = (int) ((_detectionRadius * 3 + Math.Max(30.0, INITIAL_DETECTION_RADIUS / (1 + blobCount * 0.3))) / 4.0);
+            // Calculate new detection orb radius
+            //float nRad = Math.Max(20.0f, INITIAL_DETECTION_RADIUS/(1 + blobCount*0.3f));
+            if(blobCount >= 1)
+                _detectionRadius = (_detectionRadius * 19 + 20.0f) / 20.0f;
+            else
+                _detectionRadius = (_detectionRadius * 59 + INITIAL_DETECTION_RADIUS) / 60.0f;
+
 
             // Account for border force, to prevent cornering
             //if (BOX_SIZE.Width - _playerPos.X < 120)
-            _force += new Vec2(Vec2.CalculateForce(BOX_SIZE.Width - _playerPos.X, -4000), 0);
+            _force += new Vec2(Vec2.CalculateForce(BOX_SIZE.Width - _playerPos.X, -3000), 0);
             //if (_playerPos.X < 120)
-            _force += new Vec2(Vec2.CalculateForce(_playerPos.X, 4000), 0);
+            _force += new Vec2(Vec2.CalculateForce(_playerPos.X, 3000), 0);
             if (BOX_SIZE.Height - _playerPos.Y < 50)
                 _force += new Vec2(0, Vec2.CalculateForce(BOX_SIZE.Height - _playerPos.Y, -2000));
             if (_playerPos.Y < 200)
-                _force += new Vec2(0, Vec2.CalculateForce(_playerPos.Y, 5000));
+                _force += new Vec2(0, Vec2.CalculateForce(_playerPos.Y, 3000));
 
-            imageToShow.Draw("BLOB_COUNT: " + blobCount, new Point(10, 20), FontFace.HersheyPlain, 1, new Bgr(Color.White), 1);
+            //imageToShow.Draw("BLOB_AREA: " + percBlob, new Point(10, 20), FontFace.HersheyPlain, 1, new Bgra(255, 255, 255, 255), 1);
             // Draw force vector
             imageToShow.Draw(
                 new LineSegment2DF(_playerPos,
                 new PointF((float)(_playerPos.X + _force.X), (float)(_playerPos.Y + _force.Y))),
-                new Bgr(Color.Orange), 5);
-            imageBox.Image = imageToShow;
+                new Bgra(0, 128, 255, 255), 5);
+            _form.imageBox.Image = imageToShow;
         }
 
         public void DoPlayerMovement(Vec2 force)
@@ -261,15 +267,6 @@ namespace TouhouCV
             DInput.SendKey(0x2D, DInput.KEYEVENTF_SCANCODE);
             Thread.Sleep(20);
             DInput.SendKey(0x2D, DInput.KEYEVENTF_KEYUP | DInput.KEYEVENTF_SCANCODE);
-        }
-
-        private void TouhouCV_FormClosing(object sender, FormClosingEventArgs e)
-        {
-            DInput.SendKey(0x2C, DInput.KEYEVENTF_KEYUP | DInput.KEYEVENTF_SCANCODE);
-            DInput.SendKey(0x4D, DInput.KEYEVENTF_KEYUP | DInput.KEYEVENTF_SCANCODE);
-            DInput.SendKey(0x4B, DInput.KEYEVENTF_KEYUP | DInput.KEYEVENTF_SCANCODE);
-            DInput.SendKey(0x50, DInput.KEYEVENTF_KEYUP | DInput.KEYEVENTF_SCANCODE);
-            DInput.SendKey(0x48, DInput.KEYEVENTF_KEYUP | DInput.KEYEVENTF_SCANCODE);
         }
 
         public PointF GetPlayerPosition()

@@ -1,15 +1,11 @@
-﻿using System.ComponentModel;
-using System.Windows.Forms;
-using Emgu.CV.UI;
-
-namespace TouhouCV
+﻿namespace TouhouCV
 {
-    partial class TouhouCV
+    partial class THViz
     {
         /// <summary>
         /// Required designer variable.
         /// </summary>
-        private IContainer components = null;
+        private System.ComponentModel.IContainer components = null;
 
         /// <summary>
         /// Clean up any resources being used.
@@ -40,23 +36,20 @@ namespace TouhouCV
             // imageBox
             // 
             this.imageBox.Dock = System.Windows.Forms.DockStyle.Fill;
-            this.imageBox.FunctionalMode = Emgu.CV.UI.ImageBox.FunctionalModeOption.PanAndZoom;
             this.imageBox.Location = new System.Drawing.Point(0, 0);
             this.imageBox.Name = "imageBox";
-            this.imageBox.Size = new System.Drawing.Size(764, 568);
+            this.imageBox.Size = new System.Drawing.Size(778, 603);
             this.imageBox.TabIndex = 2;
             this.imageBox.TabStop = false;
             // 
-            // TouhouCV
+            // THViz
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(8F, 16F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.ClientSize = new System.Drawing.Size(764, 568);
+            this.ClientSize = new System.Drawing.Size(778, 603);
             this.Controls.Add(this.imageBox);
-            this.Name = "TouhouCV";
-            this.Text = "TouhouCV";
-            this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.TouhouCV_FormClosing);
-            this.Load += new System.EventHandler(this.TouhouCV_Load);
+            this.Name = "THViz";
+            this.Text = "THViz";
             ((System.ComponentModel.ISupportInitialize)(this.imageBox)).EndInit();
             this.ResumeLayout(false);
 
@@ -64,6 +57,6 @@ namespace TouhouCV
 
         #endregion
 
-        private ImageBox imageBox;
+        public Emgu.CV.UI.ImageBox imageBox;
     }
 }

@@ -5,12 +5,9 @@ namespace TouhouCV
 {
     class Program
     {
-        [STAThread]
         static void Main()
         {
-            Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new TouhouCV());
+            new TouhouCV();
         }
     }
 }
