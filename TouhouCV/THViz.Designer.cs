@@ -51,6 +51,7 @@
             this.Controls.Add(this.imageBox);
             this.Name = "THViz";
             this.Text = "THViz";
+            this.Load += new System.EventHandler(this.THViz_Load);
             ((System.ComponentModel.ISupportInitialize)(this.imageBox)).EndInit();
             this.ResumeLayout(false);
 

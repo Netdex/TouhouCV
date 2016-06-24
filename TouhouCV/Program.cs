@@ -7,7 +7,7 @@ namespace TouhouCV
     {
         static void Main()
         {
-            new TouhouCV();
+            TouhouCV.Instance.Load();
         }
     }
 }
