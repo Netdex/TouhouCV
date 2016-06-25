@@ -30,17 +30,25 @@
         {
             this.components = new System.ComponentModel.Container();
             this.imageBox = new Emgu.CV.UI.ImageBox();
+            this.timer = new System.Windows.Forms.Timer(this.components);
             ((System.ComponentModel.ISupportInitialize)(this.imageBox)).BeginInit();
             this.SuspendLayout();
             // 
             // imageBox
             // 
             this.imageBox.Dock = System.Windows.Forms.DockStyle.Fill;
+            this.imageBox.FunctionalMode = Emgu.CV.UI.ImageBox.FunctionalModeOption.Minimum;
+            this.imageBox.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.Default;
             this.imageBox.Location = new System.Drawing.Point(0, 0);
             this.imageBox.Name = "imageBox";
             this.imageBox.Size = new System.Drawing.Size(778, 603);
             this.imageBox.TabIndex = 2;
             this.imageBox.TabStop = false;
+            // 
+            // timer
+            // 
+            this.timer.Enabled = true;
+            this.timer.Tick += new System.EventHandler(this.timer_Tick);
             // 
             // THViz
             // 
@@ -60,5 +68,6 @@
         #endregion
 
         public Emgu.CV.UI.ImageBox imageBox;
+        private System.Windows.Forms.Timer timer;
     }
 }

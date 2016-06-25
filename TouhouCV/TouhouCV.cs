@@ -17,6 +17,7 @@ using Emgu.CV.Util;
 using Emgu.Util;
 using Emgu.CV.VideoSurveillance;
 using Emgu.CV.XFeatures2D;
+using Gma.System.MouseKeyHook;
 using SharpDX;
 using SharpDX.Direct3D9;
 using TouhouCV.Properties;
@@ -44,22 +45,29 @@ namespace TouhouCV
             _imgPower = new Image<Gray, byte>(Resources.Power);
 
             // Start visualization form
-            _form = new THViz();
-            Thread controlThread = new Thread(() =>
+            if (DO_DRAWING)
             {
-                Application.EnableVisualStyles();
-                Application.Run(_form);
-            });
-            controlThread.SetApartmentState(ApartmentState.STA);
-            controlThread.Start();
+                _form = new THViz();
+                Thread controlThread = new Thread(() =>
+                {
+                    Application.EnableVisualStyles();
+                    Application.Run(_form);
+                });
+                controlThread.SetApartmentState(ApartmentState.STA);
+                controlThread.Start();
+            }
+
+            new Thread(()=> {
+                Subscribe();
+                Application.Run();                
+            }).Start();
 
             _process = _capture.Process;
             _hndl = Win32.GetProcessHandle(_process);
             _hWnd = _process.MainWindowHandle;
             Win32.SetForegroundWindow(_hWnd);
 
-            //_bgSub = new BackgroundSubtractorMOG2(100, 64, false);
-            //LoadEtama();
+            _bDetect = new CvBlobDetector();
 
             new Thread(() =>
             {
@@ -75,10 +83,14 @@ namespace TouhouCV
 
         public static readonly Rectangle BOX_SIZE = new Rectangle(32, 16, 384, 448);
         private const bool TEST_MODE = false;
-
+        private const bool DO_DRAWING = false;
         private const int INITIAL_DETECTION_RADIUS = 70;
         private float _detectionRadius = INITIAL_DETECTION_RADIUS;
+
         public bool DoMovement { get; set; } = true;
+        public bool ShouldAssist = false;
+        public Point AssistPoint = Point.Empty;
+
         private DXHook _capture;
         private Process _process;
         public IntPtr _hWnd;
@@ -86,11 +98,11 @@ namespace TouhouCV
         private THViz _form;
         private Image<Gray, byte> _imgPower;
         private List<Image<Gray, byte>> _etama;
-
+        private CvBlobDetector _bDetect;
         private PointF _playerPos;
         private Vec2 _force;
-        public bool ShouldAssist = false;
-        public Point AssistPoint = Point.Empty;
+
+        public Image<Bgra, byte> Screen;
 
         private void LoadEtama()
         {
@@ -105,20 +117,18 @@ namespace TouhouCV
             _etama.Add(etama.Copy(new Rectangle(4 * 16, 15 * 16, 16, 16)));
         }
 
-        private BackgroundSubtractorMOG2 _bgSub;
         private unsafe void ProcessCapture()
         {
             try
             {
                 Screenshot ssht = _capture.Capture();
-                Image<Bgra, byte> imageToShow;
-                Image<Gray, byte> scrn;
+                Image<Gray, byte> process;
 
                 fixed (byte* p = ssht.Data)
                 {
                     IntPtr ptr = (IntPtr)p;
-                    imageToShow = new Image<Bgra, byte>(ssht.Width, ssht.Height, ssht.Stride, ptr) { ROI = BOX_SIZE };
-                    scrn = imageToShow.Convert<Gray, byte>();
+                    Screen = new Image<Bgra, byte>(ssht.Width, ssht.Height, ssht.Stride, ptr) { ROI = BOX_SIZE };
+                    process = Screen.Convert<Gray, byte>();
                 }
                 ssht.Dispose();
 
@@ -126,20 +136,16 @@ namespace TouhouCV
 
                 // Read player position from memory
                 _playerPos = GetPlayerPosition();
-                imageToShow.Draw(
-                    new Rectangle((int)(_playerPos.X - 3), (int)(_playerPos.Y - 3), 6, 6),
-                    new Bgra(0, 255, 0, 255),
-                    2);
-
-                imageToShow.Draw(new CircleF(_playerPos, _detectionRadius), new Bgra(0, 255, 255, 255), 1);
-                // Look for power
-                scrn.ROI = new Rectangle(
+                
+                Rectangle powerDetectionROI = new Rectangle(
                     (int)Math.Max(_playerPos.X - 100, 0),
                     (int)Math.Max(_playerPos.Y - 75, 0),
                     (int)Math.Min(BOX_SIZE.Width - (_playerPos.X - 100), 200),
                     (int)Math.Min(BOX_SIZE.Height - (_playerPos.Y - 75), 100));
-                imageToShow.Draw(scrn.ROI, new Bgra(255, 255, 0, 255), 1);
-                using (Image<Gray, float> result = scrn.MatchTemplate(_imgPower, TemplateMatchingType.SqdiffNormed))
+                // Look for power
+                process.ROI = powerDetectionROI;
+                
+                using (Image<Gray, float> result = process.MatchTemplate(_imgPower, TemplateMatchingType.SqdiffNormed))
                 {
                     double minDistSq = double.MaxValue;
                     int minX = 0, minY = 0;
@@ -163,10 +169,13 @@ namespace TouhouCV
                     }
                     if (minDistSq != double.MaxValue)
                     {
-                        Rectangle match = new Rectangle(minX + scrn.ROI.X, minY + scrn.ROI.Y, _imgPower.Width,
+                        Rectangle match = new Rectangle(minX + process.ROI.X, minY + process.ROI.Y, _imgPower.Width,
                             _imgPower.Height);
-                        imageToShow.Draw(match, new Bgra(0, 255, 255, 255), 2);
-                        imageToShow.Draw(new LineSegment2DF(match.Location, _playerPos), new Bgra(0, 255, 255, 255), 1);
+                        if (DO_DRAWING)
+                        {
+                            Screen.Draw(match, new Bgra(0, 255, 255, 255), 2);
+                            Screen.Draw(new LineSegment2DF(match.Location, _playerPos), new Bgra(0, 255, 255, 255), 1);
+                        }
                         Vec2 acc = Vec2.CalculateForce(
                             new Vec2(match.X + _imgPower.Width / 2.0, match.Y + _imgPower.Height / 2.0),
                             new Vec2(_playerPos.X, _playerPos.Y), 4000);
@@ -175,12 +184,13 @@ namespace TouhouCV
                 }
 
                 // Processing bounding box
-                scrn.ROI = new Rectangle(
+                Rectangle bulletDetectionROI = new Rectangle(
                     (int)Math.Max(_playerPos.X - INITIAL_DETECTION_RADIUS, 0),
                     (int)Math.Max(_playerPos.Y - INITIAL_DETECTION_RADIUS, 0),
                     (int)Math.Min(BOX_SIZE.Width - ((int)_playerPos.X - INITIAL_DETECTION_RADIUS), INITIAL_DETECTION_RADIUS * 2),
                     (int)Math.Min(BOX_SIZE.Height - ((int)_playerPos.Y - INITIAL_DETECTION_RADIUS), INITIAL_DETECTION_RADIUS * 2));
-                imageToShow.Draw(scrn.ROI, new Bgra(0, 0, 255, 255), 1);
+                process.ROI = bulletDetectionROI;
+                
 
                 if (TEST_MODE)
                 {
@@ -189,25 +199,27 @@ namespace TouhouCV
                 }
                 Vec2 _playerVec = new Vec2(_playerPos.X, _playerPos.Y);
 
-                var binthresh = scrn.SmoothBlur(3, 3).ThresholdBinary(new Gray(240), new Gray(255)); //220
+                var binthresh = process.SmoothBlur(3, 3).ThresholdBinary(new Gray(240), new Gray(255)); //220
                 // Detect blobs (bullets) on screen
                 CvBlobs resultingImgBlobs = new CvBlobs();
-                CvBlobDetector bDetect = new CvBlobDetector();
-                uint noBlobs = bDetect.Detect(binthresh, resultingImgBlobs);
+                uint noBlobs = _bDetect.Detect(binthresh, resultingImgBlobs);
                 int blobCount = 0;
                 resultingImgBlobs.FilterByArea(10, 500);
                 foreach (CvBlob targetBlob in resultingImgBlobs.Values)
                 {
-                    imageToShow.ROI = new Rectangle(scrn.ROI.X + BOX_SIZE.X, scrn.ROI.Y + BOX_SIZE.Y, scrn.ROI.Width,
-                        scrn.ROI.Height);
-                    imageToShow.FillConvexPoly(targetBlob.GetContour(), new Bgra(0, 0, 255, 255));
-
+                    if (DO_DRAWING)
+                    {
+                        Screen.ROI = new Rectangle(process.ROI.X + BOX_SIZE.X, process.ROI.Y + BOX_SIZE.Y,
+                            process.ROI.Width,
+                            process.ROI.Height);
+                        Screen.FillConvexPoly(targetBlob.GetContour(), new Bgra(0, 0, 255, 255));
+                    }
                     // Find closest point on blob contour to player
                     Point minPoint = targetBlob.GetContour()[0];
                     double minDist = double.MaxValue;
                     foreach (var point in targetBlob.GetContour())
                     {
-                        Point adj = new Point(point.X + scrn.ROI.X, point.Y + scrn.ROI.Y);
+                        Point adj = new Point(point.X + process.ROI.X, point.Y + process.ROI.Y);
                         double dist =
                             (adj.X - _playerPos.X) * (adj.X - _playerPos.X) +
                             (adj.Y - _playerPos.Y) * (adj.Y - _playerPos.Y);
@@ -221,25 +233,28 @@ namespace TouhouCV
                     // Ensure the bullet is in the correct range
                     if (minDist < _detectionRadius * _detectionRadius)
                     {
-                        imageToShow.ROI = BOX_SIZE;
+                        
                         // Calculate forces
                         Vec2 acc = Vec2.CalculateForce(new Vec2(minPoint.X, minPoint.Y),
                             _playerVec, -5000);
                         _force += acc;
-                        imageToShow.Draw(new LineSegment2DF(_playerPos, minPoint), new Bgra(0, 255, 128, 255), 1);
+                        if (DO_DRAWING)
+                        {
+                            Screen.ROI = BOX_SIZE;
+                            Screen.Draw(new LineSegment2DF(_playerPos, minPoint), new Bgra(0, 255, 128, 255), 1);
+                        }
                         blobCount++;
                     }
                 }
-                imageToShow.ROI = BOX_SIZE;
-                scrn.ROI = Rectangle.Empty;
+                Screen.ROI = BOX_SIZE;
+                process.ROI = Rectangle.Empty;
 
                 // Calculate new detection orb radius
                 //float nRad = Math.Max(20.0f, INITIAL_DETECTION_RADIUS/(1 + blobCount*0.3f));
                 if (blobCount >= 1)
-                    _detectionRadius = (_detectionRadius * 19 + 20.0f) / 20.0f;
+                    _detectionRadius = (_detectionRadius * 29 + 5.0f) / 30.0f;
                 else
                     _detectionRadius = (_detectionRadius * 59 + INITIAL_DETECTION_RADIUS) / 60.0f;
-
 
                 // Account for border force, to prevent cornering
                 //if (BOX_SIZE.Width - _playerPos.X < 120)
@@ -266,21 +281,37 @@ namespace TouhouCV
                     Vec2 sub = new Vec2(AssistPoint.X, AssistPoint.Y) - _playerVec;
                     double dist = sub.Length();
                     _force += new Vec2(sub.X / dist * 2, sub.Y / dist * 2);
-                    imageToShow.Draw(
-                        new LineSegment2DF(_playerPos, AssistPoint),
-                        new Bgra(128, 0, 255, 255), 2);
-                    imageToShow.Draw("ASSIST", new Point(10, 40), FontFace.HersheyPlain, 1, new Bgra(0, 255, 0, 255), 1);
                 }
                 //imageToShow.Draw("BLOB_AREA: " + percBlob, new Point(10, 20), FontFace.HersheyPlain, 1, new Bgra(255, 255, 255, 255), 1);
-                // Draw force vector
-                imageToShow.Draw(
-                    new LineSegment2DF(_playerPos,
-                        new PointF((float)(_playerPos.X + _force.X), (float)(_playerPos.Y + _force.Y))),
-                    new Bgra(0, 128, 255, 255), 5);
 
-                if(DoMovement)
-                    imageToShow.Draw("DO_MOVEMENT", new Point(10, 20), FontFace.HersheyPlain, 1, new Bgra(0, 255, 0, 255), 1);
-                _form.imageBox.Image = imageToShow;
+                if (DO_DRAWING)
+                {
+                    Screen.Draw(
+                        new Rectangle((int) (_playerPos.X - 3), (int) (_playerPos.Y - 3), 6, 6),
+                        new Bgra(0, 255, 0, 255),
+                        2);
+
+                    Screen.Draw(new CircleF(_playerPos, _detectionRadius), new Bgra(0, 255, 255, 255), 1);
+                    if (ShouldAssist)
+                    {
+                        Screen.Draw(
+                            new LineSegment2DF(_playerPos, AssistPoint),
+                            new Bgra(128, 0, 255, 255), 2);
+                        Screen.Draw("ASSIST", new Point(10, 40), FontFace.HersheyPlain, 1, new Bgra(0, 255, 0, 255), 1);
+                    }
+                    // Draw force vector
+                    Screen.Draw(
+                        new LineSegment2DF(_playerPos,
+                            new PointF((float) (_playerPos.X + _force.X), (float) (_playerPos.Y + _force.Y))),
+                        new Bgra(0, 128, 255, 255), 5);
+                    Screen.Draw(powerDetectionROI, new Bgra(255, 255, 0, 255), 1);
+                    Screen.Draw(bulletDetectionROI, new Bgra(0, 0, 255, 255), 1);
+                    if (DoMovement)
+                        Screen.Draw("DO_MOVEMENT", new Point(10, 20), FontFace.HersheyPlain, 1, new Bgra(0, 255, 0, 255),
+                            1);
+                    _form.imageBox.Image = Screen;
+                }
+                process.Dispose();
             }
             catch (Exception e)
             {
@@ -373,6 +404,35 @@ namespace TouhouCV
             LoLK: - 80, + 20
             */
             return new PointF(x - BOX_SIZE.X, y - BOX_SIZE.Y);
+        }
+
+        private IKeyboardMouseEvents m_GlobalHook;
+
+        public void Subscribe()
+        {
+            // Note: for the application hook, use the Hook.AppEvents() instead
+            m_GlobalHook = Hook.GlobalEvents();
+
+            m_GlobalHook.KeyDown += delegate (object sender, KeyEventArgs e)
+            {
+                switch (e.KeyCode)
+                {
+                    case Keys.T:
+                        DoMovement = !DoMovement;
+                        break;
+                    case Keys.Y:
+                        ShouldAssist = !ShouldAssist;
+                        break;
+                }
+            };
+            m_GlobalHook.MouseMove += delegate (object sender, MouseEventArgs args)
+            {
+                Point p = args.Location;
+                Win32.POINT lp = new Win32.POINT();
+                Win32.ClientToScreen(_hWnd, ref lp);
+                Point sp = new Point(p.X - lp.X - BOX_SIZE.X, p.Y - lp.Y - BOX_SIZE.Y);
+                AssistPoint = sp;
+            };
         }
     }
 }

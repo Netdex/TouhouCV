@@ -78,6 +78,7 @@ namespace TouhouCV
             if (CaptureProcess == null)
             {
                 MessageBox.Show("No executable found matching: '" + exeName + "'");
+                Environment.Exit(0);
             }
         }
     }
